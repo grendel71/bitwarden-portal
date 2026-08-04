@@ -15,46 +15,6 @@ fix_permissions() {
 }
 
 
-encrypt_file() {
-    local input_file="$1"
-    local output_file="$2"
-    local password="$3"
-
-    local input_file_name=$(echo "$input_file" | sed 's/\/app\///g')
-    local output_file_name=$(echo "$output_file" | sed 's/\/app\///g')
-
-    echo "# Encrypting file: $input_file_name."
-
-    openssl enc -aes-256-cbc -salt -pbkdf2 -pass pass:"$password" -in "$input_file" -out "$output_file"
-
-    if [ $? -ne 0 ]; then
-        echo "✕ Error: Failed to encrypt file $input_file."
-        exit 1
-    fi
-    
-    echo "# Encryption successful: $output_file_name."
-}
-
-decrypt_file() {
-    local input_file="$1"
-    local output_file="$2"
-    local password="$3"
-
-    local input_file_name=$(echo "$input_file" | sed 's/\/app\///g')
-    local output_file_name=$(echo "$output_file" | sed 's/\/app\///g')
-
-    echo "# Decrypting file: $input_file_name."
-
-    openssl enc -aes-256-cbc -d -pbkdf2 -pass pass:"$password" -in "$input_file" -out "$output_file"
-
-    if [ $? -ne 0 ]; then
-        echo "✕ Error: Failed to decrypt file $input_file."
-        exit 1
-    fi
-
-    echo "# Decryption successful: $output_file_name."
-}
-
 purge_folder() {
     local folder_path="$1"
     local max_files="$2"
@@ -104,14 +64,6 @@ purge_folder() {
     echo "# Purge completed for $folder_name."
 }
 
-cleanup_unencrypted() {
-    echo "# Cleaning up all unencrypted backup files from temporary folder ($TEMP_FOLDER)..."
-    rm -f "$TEMP_FOLDER"/*.json
-}
-
-# Set traps to ensure cleanup is performed on exit or error
-trap cleanup_unencrypted SIGINT SIGTERM EXIT
-
 
 #------#
 # INIT #
@@ -119,7 +71,6 @@ trap cleanup_unencrypted SIGINT SIGTERM EXIT
 
 # Create folder if not exists 
 SOURCE_FOLDER="/app/backups/source"
-DEST_FOLDER="/app/backups/dest"
 
 mkdir -p "$SOURCE_FOLDER"
 
@@ -127,25 +78,6 @@ if [ $? -ne 0 ]; then
     echo "✕ Error: Failed to create folder /backups/source."
     exit 1
 fi
-
-mkdir -p "$DEST_FOLDER"
-
-if [ $? -ne 0 ]; then
-    echo "✕ Error: Failed to create folder /backups/dest."
-    exit 1
-fi
-
-# Create temporary folder for unencrypted files
-TEMP_FOLDER="/tmp/bitwarden_unencrypted"
-mkdir -p "$TEMP_FOLDER"
-if [ $? -ne 0 ]; then
-    echo "✕ Error: Failed to create temporary folder $TEMP_FOLDER."
-    exit 1
-fi
-
-# Clean up any existing unencrypted backup files from TEMP_FOLDER
-echo "# Cleaning up any existing unencrypted backup files..."
-rm -f "$TEMP_FOLDER"/*.json
 
 echo "########## Start of Backup process ##########"
 
@@ -164,10 +96,8 @@ echo "# Start Time: $(date)"
 # Set the filename for our json export as variable
 SOURCE_EXPORT_OUTPUT_BASE="bw_export_source_"
 SOURCE_NEW_FILENAME="$SOURCE_EXPORT_OUTPUT_BASE$TIMESTAMP.json"
-# Unencrypted file stored in temporary folder
-SOURCE_OUTPUT_FILE_PATH="$TEMP_FOLDER/$SOURCE_NEW_FILENAME"
-# Encrypted file stored in source backup folder
-ENCRYPTED_SOURCE_OUTPUT_FILE_PATH="$SOURCE_FOLDER/$SOURCE_NEW_FILENAME.enc"
+# Encrypted export written directly to backup folder (no plaintext on disk)
+ENCRYPTED_SOURCE_OUTPUT_FILE_PATH="$SOURCE_FOLDER/$SOURCE_NEW_FILENAME"
 
 
 #--------------#
@@ -223,28 +153,15 @@ printf '\n'
 #---------------#
 
 echo "# Exporting all items..."
-bw --session "$SOURCE_SESSION" export --raw --format json > "$SOURCE_OUTPUT_FILE_PATH"
+bw --session "$SOURCE_SESSION" export --format encrypted_json --password "$ENCRYPTION_PASSWORD" --output "$ENCRYPTED_SOURCE_OUTPUT_FILE_PATH"
 
 if [ $? -ne 0 ]; then
     echo "✕ Error: Failed to export data."
     exit 1
 fi
 
-fix_permissions "$PUID" "$PGID" "$SOURCE_OUTPUT_FILE_PATH"
-
-#-----------------------#
-# SOURCE EXPORT ENCRYPT #
-#-----------------------#
-
-# Encrypt the exported file
-encrypt_file "$SOURCE_OUTPUT_FILE_PATH" "$ENCRYPTED_SOURCE_OUTPUT_FILE_PATH" "$ENCRYPTION_PASSWORD"
 fix_permissions "$PUID" "$PGID" "$ENCRYPTED_SOURCE_OUTPUT_FILE_PATH"
 
-# Remove the unencrypted file
-echo "# Removed unencrypted file."
-rm -f "$SOURCE_OUTPUT_FILE_PATH"
-
-sleep 1
 
 #---------------#
 # SOURCE LOGOUT #
@@ -261,213 +178,3 @@ unset BW_CLIENTID
 unset BW_CLIENTSECRET
 
 echo "########## End of Backup process ##########"
-
-sleep 1
-
-
-#---------#
-# RESTORE #
-#---------#
-
-# Restoring process
-echo "########## Start of Restore process ##########"
-
-# We want to remove items later, so we set a base filename now
-DEST_EXPORT_OUTPUT_BASE="bw_export_dest_"
-DEST_NEW_FILENAME="$DEST_EXPORT_OUTPUT_BASE$TIMESTAMP.json"
-# Unencrypted file stored in temporary folder
-DEST_OUTPUT_FILE_PATH="$TEMP_FOLDER/$DEST_NEW_FILENAME"
-# Encrypted file stored in destination backup folder
-ENCRYPTED_DEST_OUTPUT_FILE_PATH="$DEST_FOLDER/$DEST_NEW_FILENAME.enc"
-
-
-#------------#
-# DEST PURGE #
-#------------#
-
-purge_folder "$DEST_FOLDER" "$MIN_FILES" "$RETENTION_DAYS"
-sleep 1
-
-#------------#
-# DEST LOGIN #
-#------------#
-
-export BW_CLIENTID=${DEST_CLIENT_ID}
-export BW_CLIENTSECRET=${DEST_CLIENT_SECRET}
-
-# Login to our Server
-echo "# Logging into Dest server..."
-bw config server "$DEST_SERVER"
-
-bw login "$DEST_ACCOUNT" --apikey --raw
-
-if [ $? -ne 0 ]; then
-    echo "✕ Error: Failed to log in to destination server with account ${DEST_ACCOUNT} at ${DEST_SERVER}."
-    exit 1
-fi
-
-printf '\n'
-
-# By using an API Key, we need to unlock the vault to get a sessionID
-echo "# Unlocking the vault..."
-DEST_SESSION=$(bw unlock "$DEST_PASSWORD" --raw)
-
-if [ -z "$DEST_SESSION" ]; then
-    echo "✕ Error: No destination session retrieved. Check your destination credentials and try again."
-    exit 1
-fi
-
-# Synchronizing the vault
-echo "# Synchronizing the vault..."
-bw sync --session "$DEST_SESSION"
-printf '\n'
-
-
-#-------------#
-# DEST EXPORT #
-#-------------#
-
-# Export what's currently in the vault, so we can remove it
-echo "# Exporting current items from destination vault..."
-bw --session "$DEST_SESSION" export --raw --format json > "$DEST_OUTPUT_FILE_PATH"
-
-if [ $? -ne 0 ]; then
-    echo "✕ Error: Failed to export data."
-    exit 1
-fi
-
-fix_permissions "$PUID" "$PGID" "$DEST_OUTPUT_FILE_PATH"
-
-#---------------------#
-# DEST EXPORT ENCRYPT #
-#---------------------#
-
-# Encrypt the exported file
-echo "# Encrypting exported file..."
-encrypt_file "$DEST_OUTPUT_FILE_PATH" "$ENCRYPTED_DEST_OUTPUT_FILE_PATH" "$ENCRYPTION_PASSWORD"
-fix_permissions "$PUID" "$PGID" "$ENCRYPTED_DEST_OUTPUT_FILE_PATH"
-
-sleep 1
-
-#-----------------#
-# DEST REMOVE OLD #
-#-----------------#
-
-# Find and remove all folders, items, attachments, and org collections
-echo "# Removing items from the destination vault... This might take some time."
-
-### FOLDERS
-total_folders=$(jq '.folders | length' "$DEST_OUTPUT_FILE_PATH")
-
-if [ -z "$total_folders" ] || [ "$total_folders" -eq 0 ]; then
-    echo "# No folders found to delete."
-else
-    current_folder=0
-
-    # Loop on folders to remove
-    for id in $(jq -r '.folders[]? | .id' "$DEST_OUTPUT_FILE_PATH"); do
-        current_folder=$((current_folder + 1))
-        echo "# Deleting folder [$current_folder/$total_folders]"
-    
-        # Delete folder
-        bw --session "$DEST_SESSION" --raw delete -p folder "$id"
-    done
-
-    echo "# Folders deleted successfully."
-fi
-
-sleep 1
-
-### ITEMS
-total_items=$(jq '.items | length' "$DEST_OUTPUT_FILE_PATH")
-
-if [ -z "$total_items" ] || [ "$total_items" -eq 0 ]; then
-    echo "# No items found to delete."
-else
-    current_item=0
-
-    # Loop on IDs with progress
-    for id in $(jq -r '.items[]? | .id' "$DEST_OUTPUT_FILE_PATH"); do
-        current_item=$((current_item + 1))
-        echo "# Deleting item [$current_item/$total_items]"
-
-        # Remove item
-        bw --session "$DEST_SESSION" --raw delete -p item "$id"
-    done
-
-    echo "# Items deleted successfully."
-fi
-
-sleep 1
-
-### ATTACHMENTS
-total_attach=$(jq '.attachments | length' "$DEST_OUTPUT_FILE_PATH")
-
-if [ -z "$total_attach" ] || [ "$total_attach" -eq 0 ]; then
-    echo "# No attachments found to delete."
-else
-    current_attach=0
-
-    # Loop on IDs with progress
-    for id in $(jq -r '.attachments[]? | .id' "$DEST_OUTPUT_FILE_PATH"); do
-        current_attach=$((current_attach + 1))
-        echo "# Deleting attachment [$current_attach/$total_attach]"
-
-        # Remove attachment
-        bw --session "$DEST_SESSION" --raw delete -p attachment "$id"
-    done
-
-    echo "# Attachments deleted successfully."
-fi
-
-
-echo "# Vault purged successfully."
-echo "# Total removed -> Folders:[${total_folders:-"0"}] - Items:[${total_items:-"0"}] - Attachments:[${total_attach:-"0"}]"
-
-# Remove the unencrypted file
-echo "# Removed unencrypted file"
-rm -f "$DEST_OUTPUT_FILE_PATH"
-
-sleep 1
-
-#---------------------------#
-# DEST IMPORT SOURCE BACKUP #
-#---------------------------#
-
-# Restoring from source backup (encrypted)
-DEST_LATEST_BACKUP="$ENCRYPTED_SOURCE_OUTPUT_FILE_PATH"
-# Decrypted file stored in temporary folder
-DECRYPTED_SOURCE_OUTPUT_FILE_PATH="$TEMP_FOLDER/$SOURCE_NEW_FILENAME"
-
-# Decrypt the latest backup
-echo "# Decrypting the latest backup..."
-decrypt_file "$DEST_LATEST_BACKUP" "$DECRYPTED_SOURCE_OUTPUT_FILE_PATH" "$ENCRYPTION_PASSWORD"
-fix_permissions "$PUID" "$PGID" "$DECRYPTED_SOURCE_OUTPUT_FILE_PATH"
-
-
-# Import the decrypted backup
-echo "# Importing the decrypted backup: $DECRYPTED_SOURCE_OUTPUT_FILE_PATH"
-bw --session "$DEST_SESSION" --raw import bitwardenjson "$DECRYPTED_SOURCE_OUTPUT_FILE_PATH"
-if [ $? -ne 0 ]; then
-    echo "✕ Error: Failed to import data."
-    exit 1
-fi
-
-# Remove the decrypted file
-rm -f "$DECRYPTED_SOURCE_OUTPUT_FILE_PATH"
-echo "# Decrypted backup imported and removed."
-
-
-#-------------#
-# DEST LOGOUT #
-#-------------#
-
-echo "# Locking the vault and logout from destination server..."
-bw lock > /dev/null
-
-bw logout > /dev/null
-
-echo "########## End of Restore Process ##########"
-
-unset BW_CLIENTID
-unset BW_CLIENTSECRET

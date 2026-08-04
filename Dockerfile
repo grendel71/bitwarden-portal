@@ -8,7 +8,7 @@ RUN apk --no-cache add tzdata
 WORKDIR /app
 
 # Install required packages
-RUN apk --no-cache add python3 curl bash ca-certificates openssl ncurses coreutils make gcc g++ libgcc linux-headers grep util-linux binutils findutils uuidgen wget unzip tar openssl jq bash
+RUN apk --no-cache add python3 curl bash ca-certificates ncurses coreutils make gcc g++ libgcc linux-headers grep util-linux binutils findutils uuidgen wget unzip tar jq bash
 
 # Install Bitwarden CLI
 RUN npm install -g @bitwarden/cli

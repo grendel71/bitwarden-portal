@@ -1,213 +1,78 @@
 # Bitwarden Portal
-Automate backup and restore between Bitwarden and/or Vaultwarden vault.
 
-<p align="center">
-  <img src="logo.png" alt=""/>
-</p>
+Automate encrypted backups of your Bitwarden or Vaultwarden vault — exports directly to a password-protected encrypted JSON via the Bitwarden CLI. No plaintext ever touches disk.
 
-![Docker Image Version](https://img.shields.io/docker/v/reaper0x1/bitwarden-portal?label=Docker%20Image)
-[![Github - Official](https://img.shields.io/badge/Github-Official-2dba4e?logo=github)](https://github.com/Reaper0x1/bitwarden-portal)
+Works with Bitwarden and Vaultwarden.
 
-## Table of Contents
-- [Description](#description)
-- [Features](#features)
-- [How It Works](#how-it-works)
-- [Manual Recovery Process](#manual-recovery-process)
-- [Environment Variables](#environment-variables)
-- [Getting Started](#getting-started)
-  - [Prerequisites](#prerequisites)
-  - [Docker Compose with .env file](#docker-compose-with-env-file)
-  - [Docker Compose with env variables](#docker-compose-with-env-variables)
-  - [Build Locally](#build-locally)
-- [Roadmap](#roadmap)
-- [[WIP] Self-Signed Certificate](#self-signed-certificate)
+## Usage
 
-## Description
+### 1. Create a `.env` file
 
-The goal of this project was to create a backup process of a Bitwarden vault to a self-hosted Vaultwarden instance, ensuring there is always a copy in case the official Bitwarden becomes unavailable.
+```env
+CRON_SCHEDULE=0 0 * * *
+TZ=Europe/Berlin
+ENCRYPTION_PASSWORD=strong-password
 
-This docker image automates the **backup** and **restore** process for a Bitwarden vault. It provides functionalities for exporting, encrypting, and managing backup versions.
-Additionally, the script securely deletes outdated files while maintaining a minimum number of recent backups.
+SOURCE_ACCOUNT=you@mail.com
+SOURCE_PASSWORD=your-password
+SOURCE_CLIENT_ID=user.xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+SOURCE_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+SOURCE_SERVER=https://vault.bitwarden.com
 
-**✅ This script works for Bitwarden as well as Vaultwarden**
+PUID=1000
+PGID=1000
+ENABLE_PRUNING=true
+RETENTION_DAYS=30
+MIN_FILES=10
+```
 
+### 2. Run with Docker Compose
 
-## Features
+```yaml
+services:
+  bitwarden-portal:
+    image: reaper0x1/bitwarden-portal:latest
+    container_name: bitwarden-portal
+    env_file: .env
+    volumes:
+      - ./backups:/app/backups
+    restart: unless-stopped
+```
 
-- **🕛 Automated Backup**: Exports vault data in JSON format with CRON schedule.
-- **🔒 File Encryption**: Protects backup files with AES-256-CBC encryption using a password.
-- **🧹 Cleanup of Old Backups**: Removes outdated files based on customizable retention policies.
-- **🤖 Automated Restore**: Decrypts and imports backups into another Bitwarden vault.
-- **📂 Complete Vault Management**: Deletes folders, items, and attachments in the destination before restoring.
-- **😊 Compatibility**: Uses Bitwarden API Key for secure vault access.
-- **✒️ Self-Signed certificate**: Supports self-signed certificates for local domain.
-- ❌ Does not support attachments backup
-- **🔄 Manual Recovery**: Allows manual decryption and import of backups into a Bitwarden or Vaultwarden vault, facilitating data recovery if needed.
+```bash
+docker compose up -d
+```
 
-## How It Works
-
-1. **Source Vault Backup**
-   - Exports the vault in JSON format.
-   - Encrypts the exported file.
-   - Deletes outdated files while retaining recent backups.
-
-2. **Destination Vault Cleanup**
-   - Exports the current content of the destination vault.
-   - Deletes folders, items, and attachments.
-
-3. **Destination Vault Restore**
-   - Decrypts the latest source vault backup.
-   - Imports the decrypted backup into the destination vault.
-
-## Manual Recovery Process
-To restore your vault from the encrypted backup files, follow these instructions:
-
-1. **Locate the Encrypted Backup File**  
-   Ensure you have the latest encrypted backup file, which should be in the format `<BACKUP_FILE.enc>`.
-
-2. **Decrypt the Backup**  
-   Open your terminal and run the following command to decrypt the backup:
-   ```bash
-   openssl enc -aes-256-cbc -d -pbkdf2 -pass pass:"<YOUR_ENCRYPTION_PASSWORD>" -in "<BACKUP_FILE.enc>" -out "<output_file_name.json>"
-
-  - Replace `<YOUR_ENCRYPTION_PASSWORD>` with the password you used to encrypt the backup.
-  - Replace `<BACKUP_FILE.enc>` with the name of your encrypted backup file.
-  - Replace `<output_file_name.json>` with the desired name for the decrypted JSON output file.
-
-3. **Import the Decrypted File**  
-   After executing the command, the decrypted JSON file will be created in your current directory. You can then import this JSON file into your Bitwarden or Vaultwarden vault.  
-   **Note**: If the vault already contains the same items, duplicates will be added to the vault.
-
+Backups land in `./backups/source/`.
 
 ## Environment Variables
-The script uses the following environment variables for backup and restore configuration:
 
-- **Script Config**
-  - `CRON_SCHEDULE`: Your backup cron schedule (Default: `0 0 * * *` = every day at 00:00)   
-    You can generate one at [crontab.guru](https://crontab.guru/).
+| Variable | Description |
+|----------|-------------|
+| `CRON_SCHEDULE` | Backup schedule (default: `0 0 * * *` = daily at midnight). Generate at [crontab.guru](https://crontab.guru/) |
+| `TZ` | Timezone (e.g. `Europe/Berlin`) |
+| `ENCRYPTION_PASSWORD` | Password used to encrypt backup files |
+| `SOURCE_ACCOUNT` | Email for the vault |
+| `SOURCE_PASSWORD` | Master password for the vault |
+| `SOURCE_CLIENT_ID` | API key client ID — found in Account Settings → Security → Keys |
+| `SOURCE_CLIENT_SECRET` | API key client secret |
+| `SOURCE_SERVER` | Bitwarden/Vaultwarden server URL |
+| `PUID` | User ID for file ownership |
+| `PGID` | Group ID for file ownership |
+| `ENABLE_PRUNING` | Set to `false` to keep all backups (default: `true`) |
+| `RETENTION_DAYS` | Delete backups older than this many days |
+| `MIN_FILES` | Minimum backups to keep when all are older than retention |
 
-- **Authentication**
-  - `SOURCE_ACCOUNT`: Email for the source vault.
-  - `SOURCE_PASSWORD`: Password for the source vault.
-  - `SOURCE_CLIENT_ID`: Client ID for the source vault.
-  - `SOURCE_CLIENT_SECRET`: Client Secret for the source vault.
+## Recovery
 
-  - `DEST_ACCOUNT`: Email for the destination vault.
-  - `DEST_PASSWORD`: Password for the destination vault.
-  - `DEST_CLIENT_ID`: Client ID for the destination vault.
-  - `DEST_CLIENT_SECRET`: Client Secret for the destination vault.
+To restore from a backup:
 
-    See [prerequisites](#prerequisites) for how to get **Client ID** and **Client Secret**.
-
-- **Server Configuration**
-  - `SOURCE_SERVER`: URL of the Bitwarden/Vaultwarden server for the source vault.
-  - `DEST_SERVER`: URL of the Bitwarden/Vaultwarden server for the destination vault.  
-
-**Note**: You can use both Bitwarden and Vaultwarden for source and destination. If your are using a self-hosted Vaultwarden with a **self-signed certificate** for the domain see [Self-Signed Certificate](#self-signed-certificate) section below.
-
-- **Security Parameters**
-  - `ENCRYPTION_PASSWORD`: Password used to encrypt and decrypt backup files.
-
-- **File Management**
-  - `PUID`: User ID to set file permissions.
-  - `PGID`: Group ID to set file permissions.
-  - `ENABLE_PRUNING`: If set to `false` no backups will be pruned. (Default: `true`)
-  - `RETENTION_DAYS`: Number of days after which outdated files can be deleted. Backups older than this value will be deleted.
-  - `MIN_FILES`: Minimum number of backup files to retain. If all your backups are older than RETENTION_DAYS, keep the minimum files based on this value.
-
-### Directories Created
-
-- **Backup Folders**
-  - `backups/source`: Folder for source vault backups.
-  - `backups/dest`: Folder for destination vault backups.
-
-
-## Getting Started
-
-### Prerequisites
-
-1. **🐋 Docker** must be installed and configured.
-2. Configure access for source and destination vaults (using API Key credentials).
-    - To get both source and destination Client ID and Client Secret you need to go in `Account Settings` -> `Security` -> `Keys`.
-
-### Docker Compose with .env file
-```yaml
-services:
-    bitwarden-portal:
-        image: reaper0x1/bitwarden-portal:latest
-        container_name: bitwarden-portal
-        env_file: .env
-        volumes:
-            - your-backups-folder:/app/backups
-        restart: unless-stopped
+```bash
+bw import encrypted_json bw_export_source_2026-01-01_00-00-00.json
 ```
-- Change `your-backups-folder` to your backup folder.
-- Create a `.env` file and set the variables. (See `.env.example` as reference)
 
-### Docker Compose with env variables
-```yaml
-services:
-    bitwarden-portal:
-        image: reaper0x1/bitwarden-portal:latest
-        container_name: bitwarden-portal
-        environment:
-            # Put your cron schedule. 
-            - CRON_SCHEDULE=0 0 * * *
-            # Your timezone.
-            - TZ=Europe/Berlin
-            # This is the password used to encrypt and decrypt the backup files.
-            - ENCRYPTION_PASSWORD=strong-password
-            # Your Bitwarden/Vaultwarden SOURCE login info.
-            - SOURCE_ACCOUNT=source@mail.com
-            - SOURCE_PASSWORD=source-password
-            # You can find these two in Account Settings -> Security -> Keys.
-            - SOURCE_CLIENT_ID=user.xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-            - SOURCE_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-            # Your source server domain/IP.
-            - SOURCE_SERVER=https://vault.bitwarden.com
-            # Your Bitwarden/Vaultwarden DESTINATION login info.
-            - DEST_ACCOUNT=dest@mail.com
-            - DEST_PASSWORD=dest-password
-            # You can find these two in Account Settings -> Security -> Keys.
-            - DEST_CLIENT_ID=user.xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-            - DEST_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-            # Your source server domain/IP.
-            - DEST_SERVER=http://192.168.1.10:8888 # Can be https://vaultwarden.myserver.local if using self-signed certificate.
-            # The users belongs to process and files.
-            - PUID=1000
-            - PGID=1000
-            # Enable/Disable backups pruning (false/true)
-            - ENABLE_PRUNING=true
-            # Your retention policy for backup files. Backup older than this value will be deleted.
-            - RETENTION_DAYS=30
-            # If all your backups are older than RETENTION_DAYS, keep the following minimum files.
-            - MIN_FILES=10
-        volumes:
-            - your-backups-folder:/app/backups
-        restart: unless-stopped
-```
-- Change env variables to match your setup.
-- Change `your-backups-folder` to your backup folder.
+You'll be prompted for the encryption password. Works on any Bitwarden or Vaultwarden instance.
 
-### Build Locally
-1. Clone the repo and enter the directory:  
-    ```bash
-    git clone https://github.com/Reaper0x1/bitwarden-portal.git && cd bitwarden-portal
-    ```
-2. Create a `.env` file and set the variables. (See `.env.example` as reference)
-3. Start the container:  
-    ```bash
-    docker compose up -d
-    ```
-    
-## Roadmap
-- Self-signed certificate with docker-compose (not only by local build).
-- Output logs.
-- Attachments backup and transfer.
+## Self-Signed Certificates
 
-## Self-Signed Certificate
-**[WIP**]  
-If you are using a local domain with a self-signed certificate for SSL, you need to put your certificate inside the `Certs` folder.
-
-- **Build image locally**: just put the `.crt` file inside the `certs` folder.
-- **Using Docker Hub Image**: TO-DO
+If your Vaultwarden uses a self-signed certificate, place the `.crt` file in the `certs/` folder before building.
