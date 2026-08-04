@@ -1,5 +1,5 @@
 backups/
-
+docs/
 certs/*
 !certs/README.md
 
