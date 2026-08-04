@@ -1,6 +1,6 @@
 # Bitwarden Portal
 
-Automate encrypted backups of your Bitwarden or Vaultwarden vault — exports directly to a password-protected encrypted JSON via the Bitwarden CLI. No plaintext ever touches disk.
+Automate encrypted backups of your Bitwarden or Vaultwarden vault, exports directly to a password-protected encrypted JSON via the Bitwarden CLI.
 
 Works with Bitwarden and Vaultwarden.
 
@@ -43,7 +43,7 @@ services:
 docker compose up -d
 ```
 
-Backups land in `./backups/source/`.
+Backups output to `./backups/source/`.
 
 ## Environment Variables
 
