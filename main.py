@@ -13,7 +13,7 @@ backup_lock = asyncio.Lock()
 
 
 @app.post("/api/backup")
-async def trig_backuip():
+async def trig_backup():
     if backup_lock.locked():
         raise HTTPException(
             status_code=409,
