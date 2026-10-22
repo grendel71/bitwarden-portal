@@ -33,12 +33,16 @@ jobs:
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-
-
+      - name: Compute epoch tag
+        id: epoch
+        run: echo "TAG=$(date -u +%s)" >> $GITHUB_OUTPUT
       - name: Build and push bitwarden-portal
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           push: ${{ github.event_name == 'push' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+            ${{ env.REGISTRY_HOST }}/bitwarden-portal:${{ steps.epoch.outputs.TAG }}
           labels: ${{ steps.meta.outputs.labels }}
