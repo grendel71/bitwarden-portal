@@ -1,36 +1,32 @@
-# Use a Node.js base image
-FROM node:20.19-alpine3.20
+# ---- Stage 1: Fetch the Bitwarden CLI binary ----
+FROM debian:bookworm-slim AS bw-cli
+ARG BW_CLI_VERSION=2024.10.0
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl unzip ca-certificates \
+    && curl -fsSL -o /tmp/bw.zip \
+        "https://github.com/bitwarden/clients/releases/download/cli-v${BW_CLI_VERSION}/bw-linux-${BW_CLI_VERSION}.zip" \
+    && unzip /tmp/bw.zip -d /usr/local/bin \
+    && chmod +x /usr/local/bin/bw \
+    && rm -rf /tmp/bw.zip /var/lib/apt/lists/*
 
-ENV TZ="Europe/Berlin"
-RUN apk --no-cache add tzdata
+# ---- Stage 2: Install Python packages ----
+FROM python:3.13-slim AS builder
+WORKDIR /app
+COPY requirements.txt ./
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir --prefix=/install -r requirements.txt
 
-# Set working directory
+# ---- Stage 3: Final runtime image ----
+FROM python:3.13-slim
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 WORKDIR /app
 
-# Install required packages
-RUN apk --no-cache add python3 curl bash ca-certificates ncurses coreutils make gcc g++ libgcc linux-headers grep util-linux binutils findutils uuidgen wget unzip tar jq bash
+COPY --from=bw-cli /usr/local/bin/bw /usr/local/bin/bw
+COPY --from=builder /install /usr/local
 
-# Install Bitwarden CLI
-RUN npm install -g @bitwarden/cli
+COPY main.py ./
+COPY modules ./modules
 
-# Define a default cron schedule
-ENV CRON_SCHEDULE="0 0 * * *"
-
-# Create a cron job file with the defined schedule
-RUN echo "$CRON_SCHEDULE root /app/backup.sh > /var/log/cron.log 2>&1" > /etc/crontabs/root
-
-# Copy your script and encryption files to the container
-COPY ./bitwarden-portal.sh /app/backup.sh
-
-# Copy custom SSL certificates
-COPY ./certs/* /usr/local/share/ca-certificates/
-COPY ./certs/* /usr/share/ca-certificates/
-
-# Update SSL certificates
-RUN update-ca-certificates
-
-# Make your script executable
-RUN chmod +x /app/backup.sh
-
-# Start cron and log output to console
-CMD ["sh", "-c", "echo \"$CRON_SCHEDULE /app/backup.sh > /proc/1/fd/1 2>&1\" > /etc/crontabs/root && crond -f -L /dev/stdout"]
+EXPOSE 8000
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,8 +1,27 @@
 services:
-  bitwarden-portal:
+  bitwarden_portal:
     build: .
     container_name: bitwarden-portal
-    env_file: .env
+    ports:
+      - "4200:8000"
     volumes:
       - ./backups:/app/backups
-    restart: unless-stopped
+    environment:
+      - SOURCE_CLIENT_ID=${SOURCE_CLIENT_ID}
+      - SOURCE_CLIENT_SECRET=${SOURCE_CLIENT_SECRET}
+      - SOURCE_ACCOUNT=${SOURCE_ACCOUNT}
+      - SOURCE_SERVER=${SOURCE_SERVER}
+      - BACKUP_DIR=${BACKUP_DIR}
+      - SOURCE_PASSWORD=${SOURCE_PASSWORD}
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5

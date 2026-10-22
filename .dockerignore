@@ -1,0 +1,7 @@
+.venv
+.git
+.github
+docs
+certs
+*.md
+__pycache__

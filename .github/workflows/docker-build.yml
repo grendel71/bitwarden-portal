@@ -1,53 +1,44 @@
-name: Build and Push Docker Image
+name: Build and push Docker image
 
 on:
   push:
-    branches:
-      - main
-  release:
-    types:
-      - published
+    branches: [main]
+  pull_request:
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+permissions:
+  contents: read
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
+    # Scale set "runner-bitwarden" (ARC, Docker-in-Docker). The runner sets
+    # REGISTRY (registry host, no scheme) in its own environment.
+    runs-on: runner-bitwarden
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Resolve registry from runner environment
+        run: |
+          : "${REGISTRY:?REGISTRY is not set in the runner environment}"
+          echo "REGISTRY_HOST=${REGISTRY}" >> "$GITHUB_ENV"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Docker metadata
+      - name: Extract metadata for bitwarden-portal
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY_HOST }}/bitwarden-portal
           tags: |
-            type=sha,prefix=
-            type=raw,value=latest
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=sha-
 
-      - name: Build and push
+      - name: Build and push bitwarden-portal
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
+          file: ./Dockerfile
+          push: ${{ github.event_name == 'push' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
