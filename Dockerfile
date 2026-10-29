@@ -1,13 +1,10 @@
 # ---- Stage 1: Fetch the Bitwarden CLI binary ----
-FROM debian:bookworm-slim AS bw-cli
+# Uses the Python standard library to download and unzip, so the build does not
+# need apt-get (and does not need access to deb.debian.org).
+FROM python:3.13-slim AS bw-cli
 ARG BW_CLI_VERSION=2024.10.0
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl unzip ca-certificates \
-    && curl -fsSL -o /tmp/bw.zip \
-        "https://github.com/bitwarden/clients/releases/download/cli-v${BW_CLI_VERSION}/bw-linux-${BW_CLI_VERSION}.zip" \
-    && unzip /tmp/bw.zip -d /usr/local/bin \
-    && chmod +x /usr/local/bin/bw \
-    && rm -rf /tmp/bw.zip /var/lib/apt/lists/*
+RUN python -c "import io, os, urllib.request, zipfile; v = os.environ['BW_CLI_VERSION']; url = f'https://github.com/bitwarden/clients/releases/download/cli-v{v}/bw-linux-{v}.zip'; zipfile.ZipFile(io.BytesIO(urllib.request.urlopen(url).read())).extract('bw', '/usr/local/bin')" \
+    && chmod +x /usr/local/bin/bw
 
 # ---- Stage 2: Install Python packages ----
 FROM python:3.13-slim AS builder
