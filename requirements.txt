@@ -6,6 +6,8 @@ argon2-cffi-bindings==26.1.0
 bitwarden_sdk==2.1.0
 certifi==2026.10.19
 cffi==2.1.1
+click==8.5.0
+croniter==6.2.4
 fastapi==0.158.2
 h11==0.16.0
 hkdf==0.0.3
@@ -18,10 +20,13 @@ pycryptodome==4.1.0
 pydantic==2.14.1
 pydantic_core==2.50.1
 python-dateutil==2.9.0.post0
+python-dotenv==1.2.4
 python-vaultwarden==1.1.2
+PyYAML==6.0.3
+redis==8.1.0
+rq==3.0.0
 six==1.17.0
 starlette==1.9.0
 typing-inspection==0.4.4
 typing_extensions==4.16.0
 uvicorn==0.54.0
-dotenv

@@ -11,6 +11,8 @@ REQUIRED_ENV = [
     "SOURCE_SERVER",
     "SOURCE_ACCOUNT",
     "SOURCE_PASSWORD",
+    "REDIS_HOST",
+    "REDIS_PORT",
 ]
 
 
@@ -26,3 +28,5 @@ SOURCE_SERVER = os.environ.get("SOURCE_SERVER")
 BACKUP_DIR = os.environ.get("BACKUP_DIR")
 BACKUP = BACKUP_DIR
 SOURCE_PASSWORD = os.environ.get("SOURCE_PASSWORD")
+REDIS_HOST = os.environ["REDIS_HOST"]
+REDIS_PORT = int(os.environ["REDIS_PORT"])

@@ -1,19 +1,31 @@
+# Shared by the API and the worker. All values come from .env.
+# The "environment" entries override .env: inside Docker, Redis is reachable at
+# the service name "redis", while .env holds the host for running without Docker.
+x-app-env: &app-env
+  env_file:
+    - .env
+  environment:
+    REDIS_HOST: redis
+    REDIS_PORT: "6379"
+
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: bitwarden-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
   bitwarden_portal:
     build: .
     container_name: bitwarden-portal
     ports:
       - "4200:8000"
+    depends_on:
+      - redis
     volumes:
       - ./backups:/app/backups
-    environment:
-      - SOURCE_CLIENT_ID=${SOURCE_CLIENT_ID}
-      - SOURCE_CLIENT_SECRET=${SOURCE_CLIENT_SECRET}
-      - SOURCE_ACCOUNT=${SOURCE_ACCOUNT}
-      - SOURCE_SERVER=${SOURCE_SERVER}
-      - BACKUP_DIR=${BACKUP_DIR}
-      - SOURCE_PASSWORD=${SOURCE_PASSWORD}
-
+    <<: *app-env
     healthcheck:
       test:
         [
@@ -25,3 +37,17 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  worker:
+    build: .
+    container_name: bitwarden-worker
+    restart: unless-stopped
+    depends_on:
+      - redis
+    volumes:
+      - ./backups:/app/backups
+    <<: *app-env
+    command: rq worker
+
+volumes:
+  redis_data:
