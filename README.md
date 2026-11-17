@@ -1,78 +1,95 @@
 # Bitwarden Portal
 
-Automate encrypted backups of your Bitwarden or Vaultwarden vault, exports directly to a password-protected encrypted JSON via the Bitwarden CLI.
+A small service that backs up a Bitwarden or Vaultwarden vault to a password-protected encrypted JSON file. It exposes an HTTP API that enqueues backup jobs, which a background worker runs using the Bitwarden CLI.
 
-Works with Bitwarden and Vaultwarden.
+The export uses the Bitwarden CLI's native encrypted export (`--format encrypted_json`), so plaintext vault data is never written to disk.
 
-## Usage
+## Architecture
+
+Three services run together via Docker Compose:
+
+- `bitwarden_portal` — FastAPI app that exposes the HTTP API and enqueues backup jobs.
+- `worker` — RQ worker that runs the backup jobs.
+- `redis` — job queue that connects the API and the worker.
+
+```
+POST /api/queueBackup ──► FastAPI ──► Redis (RQ) ──► worker ──► bw export ──► ./backups
+```
+
+## Quick start
 
 ### 1. Create a `.env` file
 
-```env
-CRON_SCHEDULE=0 0 * * *
-TZ=Europe/Berlin
-ENCRYPTION_PASSWORD=strong-password
-
-SOURCE_ACCOUNT=you@mail.com
-SOURCE_PASSWORD=your-password
-SOURCE_CLIENT_ID=user.xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-SOURCE_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-SOURCE_SERVER=https://vault.bitwarden.com
-
-PUID=1000
-PGID=1000
-ENABLE_PRUNING=true
-RETENTION_DAYS=30
-MIN_FILES=10
+```bash
+cp .env.example .env
 ```
 
-### 2. Run with Docker Compose
+Fill in the required variables (see [Environment Variables](#environment-variables)).
 
-```yaml
-services:
-  bitwarden-portal:
-    image: reaper0x1/bitwarden-portal:latest
-    container_name: bitwarden-portal
-    env_file: .env
-    volumes:
-      - ./backups:/app/backups
-    restart: unless-stopped
-```
+### 2. Build and start
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
-Backups output to `./backups/source/`.
+### 3. Trigger a backup
+
+```bash
+curl -X POST http://localhost:4200/api/queueBackup
+```
+
+The response contains the job ID:
+
+```json
+{"job_id": "8f4e..."}
+```
+
+Backups are written to `./backups/` on the host (mounted at `/app/backups` in the containers).
 
 ## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
-| `CRON_SCHEDULE` | Backup schedule (default: `0 0 * * *` = daily at midnight). Generate at [crontab.guru](https://crontab.guru/) |
-| `TZ` | Timezone (e.g. `Europe/Berlin`) |
-| `ENCRYPTION_PASSWORD` | Password used to encrypt backup files |
-| `SOURCE_ACCOUNT` | Email for the vault |
-| `SOURCE_PASSWORD` | Master password for the vault |
+| `SOURCE_ACCOUNT` | Email for the vault account |
+| `SOURCE_PASSWORD` | Master password for the vault. Also used to encrypt the exported JSON |
 | `SOURCE_CLIENT_ID` | API key client ID — found in Account Settings → Security → Keys |
 | `SOURCE_CLIENT_SECRET` | API key client secret |
 | `SOURCE_SERVER` | Bitwarden/Vaultwarden server URL |
-| `PUID` | User ID for file ownership |
-| `PGID` | Group ID for file ownership |
-| `ENABLE_PRUNING` | Set to `false` to keep all backups (default: `true`) |
-| `RETENTION_DAYS` | Delete backups older than this many days |
-| `MIN_FILES` | Minimum backups to keep when all are older than retention |
+| `BACKUP_DIR` | Directory where backup files are written (inside the container), e.g. `/app/backups` |
+| `REDIS_HOST` | Redis host. Inside Docker use the service name `redis` |
+| `REDIS_PORT` | Redis port (default `6379`) |
+
+All of the above are required — the app fails to start if any is missing.
+
+## API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/queueBackup` | Enqueue a backup job. Returns `{"job_id": "..."}` |
+| `GET` | `/api/jobs/{job_id}` | Get job status. Returns `{"status": "...", "result": ...}`; `404` if the job does not exist |
+| `GET` | `/api/health` | Health check. Returns `{"status": "ok"}` |
+
+There is no built-in scheduler. Trigger backups by calling `/api/queueBackup` on your own schedule (for example, a host cron job).
 
 ## Recovery
 
 To restore from a backup:
 
 ```bash
-bw import encrypted_json bw_export_source_2026-01-01_00-00-00.json
+bw import encrypted_json bw-2026-11-17-00-00.json
 ```
 
-You'll be prompted for the encryption password. Works on any Bitwarden or Vaultwarden instance.
+You will be prompted for the password — this is your master password (`SOURCE_PASSWORD`). Works on any Bitwarden or Vaultwarden instance.
 
-## Self-Signed Certificates
+Backup files use the format `bw-YYYY-MM-DD-HH-MM.json`.
 
-If your Vaultwarden uses a self-signed certificate, place the `.crt` file in the `certs/` folder before building.
+## Development
+
+Run the API locally with a local Redis:
+
+```bash
+pip install -r requirements.txt
+uvicorn main:app --reload
+```
+
+A Nix development shell is also provided (`flake.nix`) with Python 3.13.
